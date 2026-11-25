@@ -1,0 +1,65 @@
+{
+  "name": "@ntrieuvi97/mcp2cli",
+  "version": "0.1.0",
+  "description": "Universal open-source framework to convert MCP servers from any agent client app into token-efficient CLIs, cross-platform scripts, typed SDKs, and Agent Skills (SKILL.md).",
+  "license": "MIT",
+  "author": "ntrieuvi97",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ntrieuvi97/mcp2cli.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "cli",
+    "agent-skills",
+    "skill-md",
+    "clispec",
+    "toon",
+    "ai-agents",
+    "token-optimization",
+    "cross-platform"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "bin": {
+    "mcp2cli": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "README.vi.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@toon-format/toon": "^4.4.0",
+    "commander": "^15.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsup": "^9.0.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^5.1.1"
+  }
+}
