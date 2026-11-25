@@ -29,7 +29,7 @@ pnpm test
 5. **Client Discovery & Migration:**
    - Claude Code `claude mcp add` defaults to `local` scope, storing entries under `projects[<path>].mcpServers` (and `disabledMcpServers`) inside `~/.claude.json` — scan and park/restore per-project containers in addition to top-level `mcpServers`.
    - Claude Code plugins (`~/.claude/plugins/installed_plugins.json` + `enabledPlugins` in `settings*.json`) often use flat `.mcp.json` maps without a `mcpServers` wrapper and must be marked `readonlyConfig: true` so `migrate` never mutates plugin cache directories.
-   - Account-synced `claude.ai` Cloud Connectors (e.g., Atlassian Rovo MCP) live on Anthropic's cloud with OAuth; handle HTTP 401/OAuth endpoints with an actionable `npx -y mcp-remote <url>` hint.
+   - Account-synced `claude.ai` Cloud Connectors (e.g., Atlassian Rovo MCP) live on Anthropic's cloud with OAuth; handle HTTP 401/OAuth endpoints with an actionable `npx -y mcp-remote <url>` hint (note: `connectToMcpServer` defaults to a 30s timeout, so users should pre-authenticate once with `npx -y mcp-remote <url>` before `convert`, and optionally use `mcp2cli session start` to amortize `npx` startup).
 6. **Toolchain & Packaging Notes:**
    - `@modelcontextprotocol/client` v2.4+ splits subpaths: import `StdioClientTransport` from `@modelcontextprotocol/client/stdio` and `SkillsClient` from `@modelcontextprotocol/client/ext/skills`.
    - Keep `packages: ['.']` alongside `allowBuilds` in `pnpm-workspace.yaml` so both `pnpm` v9/v10 (CI) and `pnpm` v12+ install cleanly without `packages field missing or empty`.
