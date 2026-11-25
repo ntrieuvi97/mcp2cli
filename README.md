@@ -26,13 +26,44 @@ Every MCP server attached directly to an AI agent client (Claude Code, Claude De
 
 Requires **Node.js ≥ 22.0.0** (works on Linux `glibc`/`musl`, macOS, Windows PowerShell/`cmd.exe`, BSD, Android Termux, Docker, and CI — **zero native C++ addons**).
 
-```bash
-# Run without installing
-npx @ntrieuvi97/mcp2cli --help
+### Option 1: Directly Inside Your AI Agent Client (Recommended — No Terminal Needed)
 
-# Or install globally
-npm install -g @ntrieuvi97/mcp2cli
+If you use **Claude Code, Cursor, Antigravity, Windsurf, Cline, Roo Code, Codex, Gemini CLI, or OpenCode**, just paste this prompt into your agent:
+
+> *"Install and set up https://github.com/ntrieuvi97/mcp2cli (`skills/mcp2cli/SKILL.md`), scan my MCP servers, audit how many tokens they cost per turn, and preview a safe migration before making changes."*
+
+Or install the `mcp2cli` Agent Skill in one command (your agent will auto-bootstrap the CLI on demand):
+
+```bash
+npx skills add ntrieuvi97/mcp2cli
 ```
+
+### Option 2: Install CLI via Terminal
+
+```bash
+# Install directly from GitHub
+npm install -g github:ntrieuvi97/mcp2cli
+
+# Or run once without installing globally
+npx --yes github:ntrieuvi97/mcp2cli --help
+```
+
+<details>
+<summary>Install from npm registry (when published) or local source</summary>
+
+```bash
+# From npm registry
+npm install -g @ntrieuvi97/mcp2cli
+
+# From local source (for contributors)
+git clone https://github.com/ntrieuvi97/mcp2cli.git
+cd mcp2cli
+pnpm install
+pnpm run build
+pnpm link --global
+```
+
+</details>
 
 ---
 

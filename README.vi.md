@@ -22,11 +22,44 @@ Mỗi MCP server gắn trực tiếp vào ứng dụng agent (Claude Code, Claud
 
 Yêu cầu **Node.js ≥ 22.0.0** (chạy trên Linux `glibc`/`musl`, macOS, Windows PowerShell/`cmd.exe`, BSD, Android Termux, Docker, CI — **không phụ thuộc native C++ addon**).
 
+### Cách 1: Dùng ngay trong AI Agent Client (Khuyên dùng — không cần tự mở Terminal)
+
+Nếu bạn đang dùng **Claude Code, Cursor, Antigravity, Windsurf, Cline, Roo Code, Codex, Gemini CLI hoặc OpenCode**, chỉ cần copy-paste câu này cho agent của bạn:
+
+> *"Cài đặt và thiết lập https://github.com/ntrieuvi97/mcp2cli (kèm skill `skills/mcp2cli/SKILL.md`), quét các MCP server hiện có, đo lượng token đang tốn mỗi lượt, rồi cho tôi xem trước phương án migrate an toàn trước khi áp dụng."*
+
+Hoặc cài sẵn Agent Skill `mcp2cli` bằng 1 lệnh (agent sẽ tự động cài/chạy CLI khi cần):
+
 ```bash
-npx @ntrieuvi97/mcp2cli --help
-# Hoặc cài global
-npm install -g @ntrieuvi97/mcp2cli
+npx skills add ntrieuvi97/mcp2cli
 ```
+
+### Cách 2: Cài CLI qua Terminal
+
+```bash
+# Cài trực tiếp từ GitHub
+npm install -g github:ntrieuvi97/mcp2cli
+
+# Hoặc chạy thử không cần cài global
+npx --yes github:ntrieuvi97/mcp2cli --help
+```
+
+<details>
+<summary>Cài từ npm registry (khi đã publish) hoặc từ mã nguồn</summary>
+
+```bash
+# Từ npm registry
+npm install -g @ntrieuvi97/mcp2cli
+
+# Từ mã nguồn (dành cho contributor)
+git clone https://github.com/ntrieuvi97/mcp2cli.git
+cd mcp2cli
+pnpm install
+pnpm run build
+pnpm link --global
+```
+
+</details>
 
 ## Sử dụng nhanh
 

@@ -9,7 +9,13 @@ Khi gắn nhiều MCP server trực tiếp vào Claude Code, Cursor, VS Code, Co
 2. **Nén dữ liệu đầu ra:** Hỗ trợ `--output toon` (giảm 30–60% token so với JSON), `--fields` (chỉ lấy trường cần thiết), và `--limit` (tránh tràn context).
 3. **Script & Code-Mode SDK:** Cho phép chạy độc lập trên Linux, macOS, Windows PowerShell, Alpine Docker và Android Termux mà không cần nhồi lại schema.
 
-## 2. Quy trình chuẩn 4 bước
+## 2. Cách cài đặt tiện nhất (không cần tự thao tác Terminal)
+
+- **Cách nhanh nhất trong Agent Client:** Dán trực tiếp link `https://github.com/ntrieuvi97/mcp2cli` cho Claude Code, Cursor, Antigravity, Windsurf, Cline, Codex hoặc Gemini CLI và yêu cầu agent tự cài đặt, quét (`scan`), kiểm toán (`audit`), rồi đề xuất `migrate --dry-run`.
+- **Cài qua Agent Skill:** Chạy `npx skills add ntrieuvi97/mcp2cli` để nạp `skills/mcp2cli/SKILL.md` — skill này có sẵn bước tự động cài `mcp2cli` từ GitHub nếu máy chưa có.
+- **Cài CLI từ terminal:** `npm install -g github:ntrieuvi97/mcp2cli`.
+
+## 3. Quy trình chuẩn 4 bước
 
 ```bash
 # Bước 1: Quét các app agent trên máy
@@ -30,7 +36,7 @@ Nếu muốn quay lại cấu hình ban đầu bất kỳ lúc nào:
 mcp2cli restore --client cursor --yes
 ```
 
-## 3. Bảo mật
+## 4. Bảo mật
 
 - Không bao giờ truyền token/mật khẩu qua cờ dòng lệnh (`argv`). Hãy dùng `env:TEN_BIEN`, `file:/duong/dan`, hoặc lưu vào vault mã hóa AES-256-GCM:
   ```bash
