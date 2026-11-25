@@ -158,8 +158,7 @@ export function parseCodexToml(raw: string): Record<string, Record<string, unkno
   return servers;
 }
 
-export function getClientDescriptors(cwd = process.cwd()): ClientDescriptor[] {
-  const home = getHomeDir();
+export function getClientDescriptors(cwd = process.cwd(), home = getHomeDir()): ClientDescriptor[] {
   const appData = process.env['APPDATA'] || path.join(home, 'AppData', 'Roaming');
   const xdgConfig = process.env['XDG_CONFIG_HOME'] || path.join(home, '.config');
 
@@ -296,7 +295,13 @@ export function getClientDescriptors(cwd = process.cwd()): ClientDescriptor[] {
 function normalizeServerEntry(
   name: string,
   raw: Record<string, unknown>,
-  meta: { clientId: AgentClientId; configPath: string; scope: 'project' | 'user'; trusted: boolean }
+  meta: {
+    clientId: AgentClientId;
+    configPath: string;
+    projectPath?: string;
+    scope: 'project' | 'user';
+    trusted: boolean;
+  }
 ): McpServerConfig | null {
   if (!raw || typeof raw !== 'object') return null;
 
@@ -353,6 +358,7 @@ function normalizeServerEntry(
     disabled,
     clientId: meta.clientId,
     configPath: meta.configPath,
+    ...(meta.projectPath ? { projectPath: meta.projectPath } : {}),
     scope: meta.scope,
     trusted: meta.trusted,
   };
@@ -360,18 +366,44 @@ function normalizeServerEntry(
   return server;
 }
 
+function isFlatServerEntry(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj['command'] === 'string' ||
+    Array.isArray(obj['command']) ||
+    typeof obj['url'] === 'string' ||
+    typeof obj['serverUrl'] === 'string'
+  );
+}
+
 export function extractServersFromParsedConfig(
   parsed: Record<string, unknown>,
-  meta: { clientId: AgentClientId; configPath: string; scope: 'project' | 'user'; trusted: boolean }
+  meta: {
+    clientId: AgentClientId;
+    configPath: string;
+    projectPath?: string;
+    scope: 'project' | 'user';
+    trusted: boolean;
+  }
 ): McpServerConfig[] {
-  const mapObj =
+  const wrapper =
     (parsed['mcpServers'] as Record<string, unknown> | undefined) ??
     (parsed['servers'] as Record<string, unknown> | undefined) ??
     (parsed['mcp'] as Record<string, unknown> | undefined) ??
-    (parsed['mcp_servers'] as Record<string, unknown> | undefined) ??
-    {};
+    (parsed['mcp_servers'] as Record<string, unknown> | undefined);
 
-  if (!mapObj || typeof mapObj !== 'object') return [];
+  let mapObj: Record<string, unknown> = {};
+  if (wrapper && typeof wrapper === 'object' && !Array.isArray(wrapper)) {
+    mapObj = wrapper;
+  } else {
+    // Support flat `.mcp.json` maps (common in Claude Code plugins: `{ "atlassian": { "type": "http", "url": "..." } }`)
+    for (const [k, v] of Object.entries(parsed)) {
+      if (isFlatServerEntry(v)) {
+        mapObj[k] = v;
+      }
+    }
+  }
 
   const list: McpServerConfig[] = [];
   for (const [name, entry] of Object.entries(mapObj)) {
@@ -383,10 +415,67 @@ export function extractServersFromParsedConfig(
   return list;
 }
 
+interface ClaudeProjectEntry {
+  projectPath: string;
+  servers: McpServerConfig[];
+}
+
+function extractClaudeProjectConfigs(
+  parsed: Record<string, unknown>,
+  configPath: string,
+  cwd: string,
+  trustOverride?: boolean
+): ClaudeProjectEntry[] {
+  const projects = parsed['projects'];
+  if (!projects || typeof projects !== 'object' || Array.isArray(projects)) return [];
+
+  const resolvedCwd = path.resolve(cwd);
+  const entries = Object.entries(projects as Record<string, unknown>).filter(
+    ([, val]) => val && typeof val === 'object' && !Array.isArray(val)
+  );
+
+  // Prioritize exact cwd match, then ancestor matches of cwd, then remaining paths
+  entries.sort(([dirA], [dirB]) => {
+    const resA = path.resolve(dirA);
+    const resB = path.resolve(dirB);
+    const score = (p: string) =>
+      p === resolvedCwd ? 0 : resolvedCwd.startsWith(p + path.sep) ? 1 : 2;
+    const diff = score(resA) - score(resB);
+    return diff !== 0 ? diff : dirA.localeCompare(dirB);
+  });
+
+  const out: ClaudeProjectEntry[] = [];
+  for (const [projectPath, rawProj] of entries) {
+    const proj = rawProj as Record<string, unknown>;
+    if (!proj['mcpServers'] || typeof proj['mcpServers'] !== 'object') continue;
+    const disabledSet = new Set(
+      Array.isArray(proj['disabledMcpServers'])
+        ? (proj['disabledMcpServers'] as unknown[]).map(String)
+        : []
+    );
+    const servers = extractServersFromParsedConfig(
+      { mcpServers: proj['mcpServers'] },
+      {
+        clientId: 'claude-code',
+        configPath,
+        projectPath,
+        scope: 'project',
+        // `~/.claude.json` is user-owned in $HOME (written by `claude mcp add`), not a repo-tracked file.
+        trusted: trustOverride ?? true,
+      }
+    ).map((s) => (disabledSet.has(s.name) ? { ...s, disabled: true } : s));
+
+    if (servers.length > 0) {
+      out.push({ projectPath, servers });
+    }
+  }
+  return out;
+}
+
 export async function parseConfigFile(
   configPath: string,
   meta: { clientId: AgentClientId; scope: 'project' | 'user'; format: 'json' | 'jsonc' | 'toml'; trusted?: boolean }
-): Promise<{ servers: McpServerConfig[]; parseError?: string }> {
+): Promise<{ servers: McpServerConfig[]; parsedObj?: Record<string, unknown>; parseError?: string }> {
   try {
     const raw = await fs.readFile(configPath, 'utf8');
     const trusted = meta.trusted ?? meta.scope === 'user';
@@ -408,6 +497,7 @@ export async function parseConfigFile(
 
     const parsed = (meta.format === 'jsonc' ? parseJsonc(raw) : JSON.parse(raw)) as Record<string, unknown>;
     return {
+      parsedObj: parsed,
       servers: extractServersFromParsedConfig(parsed, {
         clientId: meta.clientId,
         configPath,
@@ -423,8 +513,119 @@ export async function parseConfigFile(
   }
 }
 
+async function readJsonSafe(filePath: string): Promise<Record<string, unknown> | null> {
+  try {
+    if (!(await fileExists(filePath))) return null;
+    const raw = await fs.readFile(filePath, 'utf8');
+    const parsed = parseJsonc(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function discoverClaudePlugins(
+  home: string,
+  cwd: string,
+  skillsDir: string,
+  trustOverride?: boolean
+): Promise<DiscoveredClientConfig[]> {
+  const installedPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
+  const installedJson = await readJsonSafe(installedPath);
+  if (!installedJson) return [];
+
+  // Merge enabledPlugins across user & project Claude settings
+  const enabledPlugins: Record<string, boolean> = {};
+  let hasEnabledPluginsMap = false;
+  const settingsCandidates = [
+    path.join(home, '.claude', 'settings.json'),
+    path.join(home, '.claude', 'settings.local.json'),
+    path.join(cwd, '.claude', 'settings.json'),
+    path.join(cwd, '.claude', 'settings.local.json'),
+  ];
+  for (const sPath of settingsCandidates) {
+    const sObj = await readJsonSafe(sPath);
+    const ep = sObj?.['enabledPlugins'];
+    if (ep && typeof ep === 'object' && !Array.isArray(ep)) {
+      hasEnabledPluginsMap = true;
+      for (const [k, v] of Object.entries(ep as Record<string, unknown>)) {
+        if (typeof v === 'boolean') enabledPlugins[k] = v;
+      }
+    }
+  }
+
+  const rawPluginsMap =
+    installedJson['plugins'] && typeof installedJson['plugins'] === 'object' && !Array.isArray(installedJson['plugins'])
+      ? (installedJson['plugins'] as Record<string, unknown>)
+      : installedJson;
+
+  const discovered: DiscoveredClientConfig[] = [];
+  const seenConfigFiles = new Set<string>();
+
+  for (const [pluginId, rawEntry] of Object.entries(rawPluginsMap)) {
+    if (pluginId === 'version') continue;
+    const records = Array.isArray(rawEntry) ? rawEntry : [rawEntry];
+    for (const rec of records) {
+      if (!rec || typeof rec !== 'object') continue;
+      const installPath = (rec as Record<string, unknown>)['installPath'];
+      if (typeof installPath !== 'string' || !installPath) continue;
+
+      const isPluginDisabled = hasEnabledPluginsMap ? enabledPlugins[pluginId] !== true : false;
+      const mcpCandidates = [path.join(installPath, '.mcp.json')];
+
+      const pluginManifestPath = path.join(installPath, '.claude-plugin', 'plugin.json');
+      const manifestObj = await readJsonSafe(pluginManifestPath);
+      if (manifestObj) {
+        if (typeof manifestObj['mcpServers'] === 'string') {
+          mcpCandidates.push(path.resolve(installPath, manifestObj['mcpServers']));
+        } else if (manifestObj['mcpServers'] && typeof manifestObj['mcpServers'] === 'object') {
+          mcpCandidates.push(pluginManifestPath);
+        }
+      }
+
+      for (const candidateFile of mcpCandidates) {
+        const resolvedFile = path.resolve(candidateFile);
+        if (seenConfigFiles.has(resolvedFile)) continue;
+        if (!(await fileExists(resolvedFile))) continue;
+        seenConfigFiles.add(resolvedFile);
+
+        const { servers, parseError } = await parseConfigFile(resolvedFile, {
+          clientId: 'claude-code',
+          scope: 'user',
+          format: 'jsonc',
+          trusted: trustOverride ?? true,
+        });
+
+        const finalServers = servers.map((s) =>
+          isPluginDisabled ? { ...s, disabled: true } : s
+        );
+
+        if (finalServers.length === 0 && !parseError) continue;
+
+        discovered.push({
+          clientId: 'claude-code',
+          clientName: `Claude Code Plugin (${pluginId})`,
+          configPath: resolvedFile,
+          readonlyConfig: true,
+          skillsDir,
+          scope: 'user',
+          format: 'json',
+          exists: true,
+          servers: finalServers,
+          ...(parseError ? { parseError } : {}),
+        });
+      }
+    }
+  }
+
+  return discovered;
+}
+
 export interface ScanOptions {
   cwd?: string;
+  homeDir?: string;
   client?: AgentClientId;
   configPath?: string;
   trust?: boolean;
@@ -432,6 +633,9 @@ export interface ScanOptions {
 }
 
 export async function scanAgentClients(opts: ScanOptions = {}): Promise<DiscoveredClientConfig[]> {
+  const cwd = opts.cwd ?? process.cwd();
+  const home = opts.homeDir ?? getHomeDir();
+
   if (opts.configPath) {
     const abs = path.resolve(opts.configPath);
     const exists = await fileExists(abs);
@@ -443,18 +647,18 @@ export async function scanAgentClients(opts: ScanOptions = {}): Promise<Discover
       });
     }
     const format = abs.endsWith('.toml') ? 'toml' : 'jsonc';
-    const { servers, parseError } = await parseConfigFile(abs, {
+    const { servers, parsedObj, parseError } = await parseConfigFile(abs, {
       clientId: opts.client ?? 'generic',
       scope: 'project',
       format,
       trusted: opts.trust ?? true, // Explicit file path is a user trust action
     });
-    return [
+    const out: DiscoveredClientConfig[] = [
       {
         clientId: opts.client ?? 'generic',
         clientName: 'Explicit Config',
         configPath: abs,
-        skillsDir: path.join(opts.cwd ?? process.cwd(), '.agents', 'skills'),
+        skillsDir: path.join(cwd, '.agents', 'skills'),
         scope: 'project',
         format,
         exists: true,
@@ -462,9 +666,25 @@ export async function scanAgentClients(opts: ScanOptions = {}): Promise<Discover
         ...(parseError ? { parseError } : {}),
       },
     ];
+    if (parsedObj && (opts.client === 'claude-code' || path.basename(abs) === '.claude.json')) {
+      for (const proj of extractClaudeProjectConfigs(parsedObj, abs, cwd, opts.trust)) {
+        out.push({
+          clientId: 'claude-code',
+          clientName: `Claude Code (${proj.projectPath})`,
+          configPath: abs,
+          projectPath: proj.projectPath,
+          skillsDir: path.join(home, '.claude', 'skills'),
+          scope: 'project',
+          format: 'json',
+          exists: true,
+          servers: proj.servers,
+        });
+      }
+    }
+    return out;
   }
 
-  const descriptors = getClientDescriptors(opts.cwd).filter(
+  const descriptors = getClientDescriptors(cwd, home).filter(
     (d) => !opts.client || d.id === opts.client
   );
   const results: DiscoveredClientConfig[] = [];
@@ -492,7 +712,7 @@ export async function scanAgentClients(opts: ScanOptions = {}): Promise<Discover
         continue;
       }
 
-      const { servers, parseError } = await parseConfigFile(normalized, {
+      const { servers, parsedObj, parseError } = await parseConfigFile(normalized, {
         clientId: desc.id,
         scope: candidate.scope,
         format: candidate.format,
@@ -510,6 +730,28 @@ export async function scanAgentClients(opts: ScanOptions = {}): Promise<Discover
         servers,
         ...(parseError ? { parseError } : {}),
       });
+
+      // Claude Code stores `claude mcp add` (local scope) entries under `projects[dir].mcpServers` in ~/.claude.json
+      if (desc.id === 'claude-code' && candidate.scope === 'user' && parsedObj) {
+        for (const proj of extractClaudeProjectConfigs(parsedObj, normalized, cwd, opts.trust)) {
+          results.push({
+            clientId: 'claude-code',
+            clientName: `Claude Code (${proj.projectPath})`,
+            configPath: normalized,
+            projectPath: proj.projectPath,
+            skillsDir: desc.skillsDir,
+            scope: 'project',
+            format: candidate.format,
+            exists: true,
+            servers: proj.servers,
+          });
+        }
+      }
+    }
+
+    if (desc.id === 'claude-code') {
+      const pluginConfigs = await discoverClaudePlugins(home, cwd, desc.skillsDir, opts.trust);
+      results.push(...pluginConfigs);
     }
   }
 
@@ -520,6 +762,41 @@ export function getBackupPathForConfig(configPath: string): string {
   return `${configPath}.mcp2cli.backup`;
 }
 
+function parkInServerMap(
+  container: Record<string, unknown>,
+  serverNames: string[]
+): string[] {
+  const key =
+    'mcpServers' in container
+      ? 'mcpServers'
+      : 'servers' in container
+        ? 'servers'
+        : 'mcp' in container
+          ? 'mcp'
+          : null;
+
+  if (!key || !container[key] || typeof container[key] !== 'object') {
+    return [];
+  }
+
+  const map = container[key] as Record<string, Record<string, unknown>>;
+  const parkedArchive = (container['_mcp2cliParked'] as Record<string, unknown> | undefined) ?? {};
+  const parked: string[] = [];
+
+  for (const name of serverNames) {
+    if (name in map) {
+      parkedArchive[name] = map[name];
+      delete map[name];
+      parked.push(name);
+    }
+  }
+
+  if (parked.length > 0) {
+    container['_mcp2cliParked'] = parkedArchive;
+  }
+  return parked;
+}
+
 /**
  * Safely park/disable migrated MCP server entries in a JSON/JSONC client config
  * after writing a verified backup so `mcp2cli restore` can revert 100% cleanly.
@@ -527,7 +804,8 @@ export function getBackupPathForConfig(configPath: string): string {
 export async function parkServersInConfig(
   configPath: string,
   serverNames: string[],
-  format: 'json' | 'jsonc' | 'toml' | 'yaml'
+  format: 'json' | 'jsonc' | 'toml' | 'yaml',
+  projectPath?: string
 ): Promise<{ backupPath: string; parked: string[] }> {
   const backupPath = getBackupPathForConfig(configPath);
   const original = await fs.readFile(configPath, 'utf8');
@@ -546,33 +824,29 @@ export async function parkServersInConfig(
   }
 
   const parsed = (format === 'jsonc' ? parseJsonc(original) : JSON.parse(original)) as Record<string, unknown>;
-  const key =
-    'mcpServers' in parsed
-      ? 'mcpServers'
-      : 'servers' in parsed
-        ? 'servers'
-        : 'mcp' in parsed
-          ? 'mcp'
-          : null;
+  let parked: string[] = [];
 
-  if (!key || !parsed[key] || typeof parsed[key] !== 'object') {
-    return { backupPath, parked: [] };
-  }
-
-  const map = parsed[key] as Record<string, Record<string, unknown>>;
-  const parkedArchive = (parsed['_mcp2cliParked'] as Record<string, unknown> | undefined) ?? {};
-  const parked: string[] = [];
-
-  for (const name of serverNames) {
-    if (name in map) {
-      parkedArchive[name] = map[name];
-      delete map[name];
-      parked.push(name);
+  if (projectPath && parsed['projects'] && typeof parsed['projects'] === 'object') {
+    const projMap = parsed['projects'] as Record<string, unknown>;
+    const proj = projMap[projectPath];
+    if (proj && typeof proj === 'object' && !Array.isArray(proj)) {
+      parked = parkInServerMap(proj as Record<string, unknown>, serverNames);
+    }
+  } else {
+    parked = parkInServerMap(parsed, serverNames);
+    if (parked.length === 0 && parsed['projects'] && typeof parsed['projects'] === 'object') {
+      const remaining = new Set(serverNames);
+      for (const rawProj of Object.values(parsed['projects'] as Record<string, unknown>)) {
+        if (rawProj && typeof rawProj === 'object' && !Array.isArray(rawProj)) {
+          const newlyParked = parkInServerMap(rawProj as Record<string, unknown>, [...remaining]);
+          parked.push(...newlyParked);
+          for (const p of newlyParked) remaining.delete(p);
+        }
+      }
     }
   }
 
   if (parked.length > 0) {
-    parsed['_mcp2cliParked'] = parkedArchive;
     await atomicWriteFile(configPath, JSON.stringify(parsed, null, 2) + os.EOL, 0o600);
   }
 

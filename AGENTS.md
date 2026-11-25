@@ -26,6 +26,11 @@ pnpm test
    - Never auto-expand `${VAR}` from untrusted project-local configs without explicit `--trust`.
    - Always spawn subprocesses with `shell: false`.
 4. **English-First, Vietnamese Secondary:** Keep code, comments, CLI messages, and primary docs in English; mirror major user guides in `README.vi.md` and `docs/vi/`.
-5. **Toolchain Notes:**
+5. **Client Discovery & Migration:**
+   - Claude Code `claude mcp add` defaults to `local` scope, storing entries under `projects[<path>].mcpServers` (and `disabledMcpServers`) inside `~/.claude.json` — scan and park/restore per-project containers in addition to top-level `mcpServers`.
+   - Claude Code plugins (`~/.claude/plugins/installed_plugins.json` + `enabledPlugins` in `settings*.json`) often use flat `.mcp.json` maps without a `mcpServers` wrapper and must be marked `readonlyConfig: true` so `migrate` never mutates plugin cache directories.
+   - Account-synced `claude.ai` Cloud Connectors (e.g., Atlassian Rovo MCP) live on Anthropic's cloud with OAuth; handle HTTP 401/OAuth endpoints with an actionable `npx -y mcp-remote <url>` hint.
+6. **Toolchain & Packaging Notes:**
    - `@modelcontextprotocol/client` v2.4+ splits subpaths: import `StdioClientTransport` from `@modelcontextprotocol/client/stdio` and `SkillsClient` from `@modelcontextprotocol/client/ext/skills`.
-   - `pnpm` v12+ uses `allowBuilds` in `pnpm-workspace.yaml` (e.g., `esbuild: true`).
+   - Keep `packages: ['.']` alongside `allowBuilds` in `pnpm-workspace.yaml` so both `pnpm` v9/v10 (CI) and `pnpm` v12+ install cleanly without `packages field missing or empty`.
+   - Keep `"prepare": "tsup"` in `package.json` `scripts` so `npm install -g github:ntrieuvi97/mcp2cli` and `npx --yes github:ntrieuvi97/mcp2cli` build `dist/` automatically when `dist/` is gitignored.

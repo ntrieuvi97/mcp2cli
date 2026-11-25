@@ -31,6 +31,7 @@ export interface McpServerConfig {
   /** Origin client metadata */
   clientId?: AgentClientId;
   configPath?: string;
+  projectPath?: string;
   scope?: 'project' | 'user';
   trusted?: boolean;
   /** References env vars like ${GITHUB_TOKEN} that require trust verification */
@@ -41,6 +42,8 @@ export interface DiscoveredClientConfig {
   clientId: AgentClientId;
   clientName: string;
   configPath: string;
+  projectPath?: string;
+  readonlyConfig?: boolean;
   skillsDir: string;
   scope: 'project' | 'user';
   format: 'json' | 'jsonc' | 'toml' | 'yaml';

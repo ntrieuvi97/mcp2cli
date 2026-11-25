@@ -190,11 +190,15 @@ export async function connectToMcpServer(
       };
     } catch {
       await sse.close().catch(() => undefined);
+      const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+      const needsOAuth = /401|unauthorized|invalid_token|oauth/i.test(errMsg);
       throw new Mcp2CliError({
-        kind: 'transport',
-        message: `Failed to connect to MCP server '${server.name}' (${server.url}): ${streamErr instanceof Error ? streamErr.message : String(streamErr)}`,
-        hint: 'Check the URL, network access, and authentication headers.',
-        retryable: true,
+        kind: needsOAuth ? 'auth' : 'transport',
+        message: `Failed to connect to MCP server '${server.name}' (${server.url}): ${errMsg}`,
+        hint: needsOAuth
+          ? `Server requires OAuth or auth headers. Add headers or bridge via \`npx -y mcp-remote ${server.url}\` (--mcp-stdio).`
+          : 'Check the URL, network access, and authentication headers.',
+        retryable: !needsOAuth,
       });
     }
   }

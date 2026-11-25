@@ -82,11 +82,20 @@ export async function runMigrateCommand(opts: MigrateCommandOptions): Promise<vo
     let backupPath: string | undefined;
 
     if (opts.park !== false && convertedNames.length > 0) {
-      if (opts.dryRun) {
+      if (client.readonlyConfig) {
+        writeStderrInfo(
+          `Note: ${client.configPath} is managed by a plugin; Skills installed, disable the plugin in the client if you want to park it.`
+        );
+      } else if (opts.dryRun) {
         parked = convertedNames;
         backupPath = `${client.configPath}.mcp2cli.backup`;
       } else if (client.format === 'json' || client.format === 'jsonc') {
-        const parkRes = await parkServersInConfig(client.configPath, convertedNames, client.format);
+        const parkRes = await parkServersInConfig(
+          client.configPath,
+          convertedNames,
+          client.format,
+          client.projectPath
+        );
         parked = parkRes.parked;
         backupPath = parkRes.backupPath;
       } else {
@@ -162,7 +171,10 @@ export async function runRestoreCommand(opts: RestoreCommandOptions): Promise<vo
   });
 
   const restored: string[] = [];
+  const seenConfigPaths = new Set<string>();
   for (const client of clients) {
+    if (seenConfigPaths.has(client.configPath)) continue;
+    seenConfigPaths.add(client.configPath);
     const ok = await restoreConfigFromBackup(client.configPath);
     if (ok) restored.push(client.configPath);
   }

@@ -41,6 +41,9 @@ Check `mcp2cli --version` and `node -v` (requires Node.js >= 22). If `mcp2cli` i
    ```
 5. **Restore** anytime if rollback is needed: `mcp2cli restore --client <id> --yes`
 
+> **Cloud Connectors / OAuth MCPs (e.g., `claude.ai` Atlassian):** Account-synced cloud connectors live on the provider's cloud rather than local JSON configs. Convert them directly with `--mcp <url>`, or bridge OAuth endpoints via `mcp-remote`:
+> `mcp2cli convert --mcp-stdio "npx -y mcp-remote https://mcp.atlassian.com/v1/mcp" --server atlassian --out <skills-dir>`
+
 ## Progressive Tool Discovery Workflow
 
 1. List tools compactly (usage-ranked):

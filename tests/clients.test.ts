@@ -79,4 +79,129 @@ GITHUB_PERSONAL_ACCESS_TOKEN = "\${GITHUB_TOKEN}"
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('scans ~/.claude.json projects.<dir>.mcpServers, honors disabledMcpServers, parks, and restores', async () => {
+    const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp2cli-claude-home-'));
+    try {
+      const projA = path.join(tmpHome, 'work', 'app-a');
+      const projB = path.join(tmpHome, 'work', 'app-b');
+      const claudeJsonPath = path.join(tmpHome, '.claude.json');
+      const original = JSON.stringify(
+        {
+          mcpServers: {
+            globalTool: { command: 'npx', args: ['-y', '@acme/global'] },
+          },
+          projects: {
+            [projA]: {
+              mcpServers: {
+                testomat: { command: 'npx', args: ['-y', '@testomatio/mcp'] },
+                oldServer: { command: 'node', args: ['./old.js'] },
+              },
+              disabledMcpServers: ['oldServer'],
+            },
+            [projB]: {
+              mcpServers: {
+                atlassian: { type: 'http', url: 'https://mcp.atlassian.com/v1/mcp' },
+              },
+            },
+          },
+        },
+        null,
+        2
+      );
+      await fs.writeFile(claudeJsonPath, original, 'utf8');
+
+      const discovered = await scanAgentClients({ cwd: projA, homeDir: tmpHome, client: 'claude-code' });
+      expect(discovered).toHaveLength(3);
+      expect(discovered[0]!.servers.map((s) => s.name)).toEqual(['globalTool']);
+      // Exact cwd match projA comes before projB
+      expect(discovered[1]!.projectPath).toBe(projA);
+      expect(discovered[1]!.servers.find((s) => s.name === 'testomat')?.disabled).toBe(false);
+      expect(discovered[1]!.servers.find((s) => s.name === 'oldServer')?.disabled).toBe(true);
+      expect(discovered[2]!.projectPath).toBe(projB);
+      expect(discovered[2]!.servers[0]!.name).toBe('atlassian');
+      expect(discovered[2]!.servers[0]!.transport).toBe('http');
+
+      const parkRes = await parkServersInConfig(claudeJsonPath, ['testomat'], 'json', projA);
+      expect(parkRes.parked).toEqual(['testomat']);
+      const afterPark = JSON.parse(await fs.readFile(claudeJsonPath, 'utf8')) as {
+        projects: Record<string, { mcpServers: Record<string, unknown>; _mcp2cliParked: Record<string, unknown> }>;
+      };
+      expect(afterPark.projects[projA]!.mcpServers).not.toHaveProperty('testomat');
+      expect(afterPark.projects[projA]!._mcp2cliParked).toHaveProperty('testomat');
+
+      const restored = await restoreConfigFromBackup(claudeJsonPath);
+      expect(restored).toBe(true);
+      expect(await fs.readFile(claudeJsonPath, 'utf8')).toBe(original);
+    } finally {
+      await fs.rm(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('scans Claude Code installed plugins (.mcp.json flat map & enabledPlugins)', async () => {
+    const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp2cli-claude-plugins-'));
+    try {
+      const pluginsDir = path.join(tmpHome, '.claude', 'plugins');
+      const atlassianInstall = path.join(pluginsDir, 'cache', 'official', 'atlassian', '1.0.0');
+      const disabledInstall = path.join(pluginsDir, 'cache', 'official', 'linear', '1.0.0');
+      await fs.mkdir(atlassianInstall, { recursive: true });
+      await fs.mkdir(disabledInstall, { recursive: true });
+
+      await fs.writeFile(
+        path.join(tmpHome, '.claude', 'settings.json'),
+        JSON.stringify({
+          enabledPlugins: {
+            'atlassian@claude-plugins-official': true,
+            'linear@claude-plugins-official': false,
+          },
+        }),
+        'utf8'
+      );
+
+      await fs.writeFile(
+        path.join(pluginsDir, 'installed_plugins.json'),
+        JSON.stringify({
+          version: 2,
+          plugins: {
+            'atlassian@claude-plugins-official': [{ scope: 'user', installPath: atlassianInstall }],
+            'linear@claude-plugins-official': [{ scope: 'user', installPath: disabledInstall }],
+          },
+        }),
+        'utf8'
+      );
+
+      // Flat .mcp.json format used by Claude Code plugins
+      await fs.writeFile(
+        path.join(atlassianInstall, '.mcp.json'),
+        JSON.stringify({
+          atlassian: { type: 'http', url: 'https://mcp.atlassian.com/v1/mcp' },
+        }),
+        'utf8'
+      );
+      await fs.writeFile(
+        path.join(disabledInstall, '.mcp.json'),
+        JSON.stringify({
+          mcpServers: {
+            linear: { type: 'http', url: 'https://mcp.linear.app/mcp' },
+          },
+        }),
+        'utf8'
+      );
+
+      const discovered = await scanAgentClients({ cwd: tmpHome, homeDir: tmpHome, client: 'claude-code' });
+      const pluginItems = discovered.filter((d) => d.clientName.startsWith('Claude Code Plugin'));
+      expect(pluginItems).toHaveLength(2);
+
+      const atlassianPlugin = pluginItems.find((p) => p.clientName.includes('atlassian'));
+      expect(atlassianPlugin?.readonlyConfig).toBe(true);
+      expect(atlassianPlugin?.servers[0]?.name).toBe('atlassian');
+      expect(atlassianPlugin?.servers[0]?.disabled).toBe(false);
+
+      const linearPlugin = pluginItems.find((p) => p.clientName.includes('linear'));
+      expect(linearPlugin?.servers[0]?.name).toBe('linear');
+      expect(linearPlugin?.servers[0]?.disabled).toBe(true);
+    } finally {
+      await fs.rm(tmpHome, { recursive: true, force: true });
+    }
+  });
 });

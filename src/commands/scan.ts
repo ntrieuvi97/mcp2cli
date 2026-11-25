@@ -23,6 +23,7 @@ export async function runScanCommand(opts: ScanCommandOptions): Promise<void> {
     clientName: d.clientName,
     scope: d.scope,
     configPath: d.configPath,
+    ...(d.projectPath ? { projectPath: d.projectPath } : {}),
     skillsDir: d.skillsDir,
     exists: d.exists,
     serverCount: d.servers.length,
